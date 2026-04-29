@@ -1,0 +1,23 @@
+pipeline {
+    agent { label 'Rivian2' }
+
+    stages {
+        stage('Database_Pre_Check') {
+            steps {
+                bat '"C:\\Python310\\python.exe" -m pipenv run python -m ingestion.jobs.financial.db_ping'
+            }
+        }
+
+        stage('Data_Extraction_And_Transform') {
+            steps {
+                bat '"C:\\Python310\\python.exe" -m pipenv run python -m ingestion.jobs.financial.extract'
+            }
+        }
+
+        stage('Data_Quality_Validation') {
+            steps {
+                bat '"C:\\Python310\\python.exe" -m pipenv run python -m ingestion.jobs.financial.validate_schema'
+            }
+        }
+    }
+}

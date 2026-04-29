@@ -1,0 +1,15 @@
+[
+  {
+    "team": {
+      "name": "Platform QA"
+    },
+    "title": "Happy path"
+  },
+  [
+    {
+      "team": {
+        "name": "Nested unexpected entry"
+      }
+    }
+  ]
+]

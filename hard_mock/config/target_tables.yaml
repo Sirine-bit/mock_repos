@@ -1,0 +1,9 @@
+tables:
+  PRD_FIN_TRANSACTIONS:
+    required_columns:
+      - transaction_id
+      - account_id
+      - transaction_hash
+      - currency_code
+      - amount
+      - booking_date

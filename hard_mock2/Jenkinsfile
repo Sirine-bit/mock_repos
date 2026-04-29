@@ -1,0 +1,17 @@
+pipeline {
+    agent { label 'AI_DATAPROC_01' }
+
+    stages {
+        stage('Fetch_API_Data') {
+            steps {
+                bat '"C:\\Python310\\python.exe" -m pipenv run python -m src.extraction.fetch_daily_sales'
+            }
+        }
+
+        stage('Process_And_Cleanse') {
+            steps {
+                bat '"C:\\Python310\\python.exe" -m pipenv run python -m src.transformation.process_sales'
+            }
+        }
+    }
+}

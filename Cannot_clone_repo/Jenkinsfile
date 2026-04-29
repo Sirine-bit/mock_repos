@@ -1,0 +1,29 @@
+pipeline {
+    agent { label 'Rivian2' }
+
+    environment {
+        DATA_FLOW_HUB_REPO = 'https://git.technica-engineering.net/data/data-flow-hub'
+        GIT_CREDENTIALS = 'token_gitlab_techinca_qqtechdataactivities'
+    }
+
+    stages {
+        stage('Deploy') {
+            steps {
+                dir('data_flow_hub') {
+                    git branch: 'main',
+                        credentialsId: env.GIT_CREDENTIALS,
+                        url: env.DATA_FLOW_HUB_REPO
+                }
+            }
+        }
+
+        stage('get_testbenches_info') {
+            when {
+                expression { false }
+            }
+            steps {
+                echo 'Unreachable when checkout fails.'
+            }
+        }
+    }
+}

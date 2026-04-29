@@ -1,0 +1,11 @@
+pipeline {
+    agent { label 'Rivian2' }
+
+    stages {
+        stage('Get_Testcases_Ipnext') {
+            steps {
+                bat '"C:\\Python310\\python.exe" -m pipenv run python -m ingestion.jobs.codebeamer_ingestion.pipelines.get_testcases_ipnext'
+            }
+        }
+    }
+}

@@ -1,0 +1,18 @@
+pipeline {
+    agent any
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        stage('Extract Testcases') {
+            steps {
+                dir('src') {
+                    // This command runs the python script which will crash immediately due to a typo in the code.
+                    bat 'python extract_testcases.py'
+                }
+            }
+        }
+    }
+}

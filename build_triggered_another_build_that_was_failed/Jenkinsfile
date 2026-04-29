@@ -1,0 +1,36 @@
+pipeline {
+    agent { label 'AI_BUILDER' }
+
+    environment {
+        PYTHON_EXE = 'C:\\Users\\taieb.hadjkacem\\AppData\\Local\\Programs\\Python\\Python310\\python.exe'
+        DOWNSTREAM_JOB = 'testguide_ipnext_testcases_extraction'
+    }
+
+    stages {
+        stage('Deploy') {
+            steps {
+                dir('data_flow_hub') {
+                    git branch: 'main',
+                        credentialsId: 'token_gitlab_techinca_qqtechdataactivities',
+                        url: 'https://git.technica-engineering.net/data/data-flow-hub.git'
+                }
+            }
+        }
+
+        stage('get_task_ids') {
+            steps {
+                dir('data_flow_hub') {
+                    bat "\"${PYTHON_EXE}\" -m pipenv run python -m ingestion.jobs.jira_cc_ipnext_executions_extraction.main_get_task_ids"
+                }
+            }
+        }
+
+        stage('trigger_downstream') {
+            steps {
+                build job: env.DOWNSTREAM_JOB,
+                    wait: true,
+                    propagate: false
+            }
+        }
+    }
+}

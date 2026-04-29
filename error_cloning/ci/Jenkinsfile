@@ -1,0 +1,29 @@
+pipeline {
+    agent { label 'WIN_LOW_MEM_AGENT' }
+
+    options {
+        timeout(time: 5, unit: 'HOURS')
+    }
+
+    stages {
+        stage('Deploy') {
+            steps {
+                dir('data_flow_hub') {
+                    checkout([$class: 'GitSCM',
+                        branches: [[name: '*/main']],
+                        userRemoteConfigs: [[
+                            credentialsId: 'token_gitlab_techinca_qqtechdataactivities',
+                            url: 'https://git.technica-engineering.net/data/data-flow-hub.git'
+                        ]],
+                        extensions: [[
+                            $class: 'CloneOption',
+                            shallow: false,
+                            noTags: false,
+                            timeout: 10
+                        ]]
+                    ])
+                }
+            }
+        }
+    }
+}

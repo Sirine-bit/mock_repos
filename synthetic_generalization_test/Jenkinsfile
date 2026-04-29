@@ -1,0 +1,23 @@
+pipeline {
+    agent { label 'build-node-xyz' }
+
+    stages {
+        stage('Setup') {
+            steps {
+                sh 'npm install'
+            }
+        }
+
+        stage('Build Frontend') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker rm -f my_container || true'
+        }
+    }
+}
