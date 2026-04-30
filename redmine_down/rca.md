@@ -1,65 +1,39 @@
-# Root Cause Analysis: Redmine Down - Git Corruption
+# Gold RCA
 
-## Issue Summary
-Jenkins pipeline `redmine_ingestion` fails during git checkout phase due to a corrupt `.git` repository.
+## Scenario
+The Redmine ingestion pipeline finishes the KAP versions, time entries, and issues stages, then crashes during the `redmine` stage when it tries to authenticate against the training Redmine server.
 
-## Root Cause
-The workspace directory `D:\\_jenkins_4\\workspace\\redmine_ingestion\\data_flow_hub` contains a corrupted `.git` directory that cannot be parsed by git commands.
+## Terminal Failure
+- Stage: `redmine`
+- Correct class: `INFRASTRUCTURE_ISSUE`
+- Terminal error: `ssl.SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired`
 
-## Technical Analysis
+## Root Cause In This Fixture
+The application code in [ingestion/jobs/redmine_ingestion/infra/redmine.py](./ingestion/jobs/redmine_ingestion/infra/redmine.py) is correct. It opens a TLS session to `https://redmine.intranet.company.tn` and probes `/users/current.json`. The remote server is presenting an expired X.509 certificate, so `urllib3` aborts the TLS handshake before any application logic runs. Earlier stages succeed because they connect to a different KAP Redmine endpoint with a valid certificate.
 
-### Failed Command
-```
-git rev-parse --resolve-git-dir D:\_jenkins_4\workspace\redmine_ingestion\data_flow_hub\.git
-```
+## Defective Location
+- File: server-side certificate on `redmine.intranet.company.tn`
+- Confirmation file: `ingestion/jobs/redmine_ingestion/infra/redmine.py`
+- Defect type: `infrastructure`
 
-### Error Stack
-- `CliGitAPIImpl.hasGitRepo()` → `GitAPI.hasGitRepo()` → `RemoteInvocationHandler`
-- Exception bubbled up from Jenkins Git Client plugin
-- Status code 128 indicates git command failure
+## Evidence The Agent Should Use
+- [ingestion/jobs/redmine_ingestion/infra/redmine.py](./ingestion/jobs/redmine_ingestion/infra/redmine.py) shows the connector simply forwards the TLS error.
+- [ingestion/jobs/redmine_ingestion/application/data_ingestion.py](./ingestion/jobs/redmine_ingestion/application/data_ingestion.py) shows `connect_to_redmine()` is called before any business logic.
+- [ingestion/jobs/redmine_ingestion/pipeline/ingest_redmine_training_issues.py](./ingestion/jobs/redmine_ingestion/pipeline/ingest_redmine_training_issues.py) shows the failing stage targets the training Redmine host, not the KAP host used by the earlier successful stages.
+- [Jenkinsfile](./Jenkinsfile) shows three KAP stages run before this one and complete normally.
 
-### Symptoms
-1. Workspace cleanup completes successfully
-2. Initial git initialization (`git init`) executes
-3. Repository metadata parsing fails immediately
-4. Unable to fetch or checkout branches
+## How The Agent Should Reason
+1. Read the traceback bottom-up and identify the original `SSLCertVerificationError`.
+2. Notice the cert has *expired*, not been misconfigured locally.
+3. Confirm earlier stages connect successfully to a different host, ruling out a client-side trust store issue.
+4. Conclude the failure is server-side infrastructure: the training Redmine certificate must be renewed.
 
-## Impact
-- Complete pipeline failure at checkout stage
-- No code retrieval possible
-- Subsequent build steps cannot execute
-- DeployExecute and redmine parameters become irrelevant
+## What A Strong Answer Must Say
+- The failure is a TLS handshake error caused by an expired server certificate.
+- The relevant host is `redmine.intranet.company.tn`.
+- The application code did not change behavior; the fix is renewing the server certificate, not editing Python.
 
-## Remediation Steps
-1. **Option 1 (Recommended)**: 
-   - Enable workspace cleanup with forced wipeout before next build
-   - Force fresh clone on next execution
-
-2. **Option 2**:
-   - Manually delete `D:\\_jenkins_4\\workspace\\redmine_ingestion` directory
-   - Re-run Jenkins job
-
-3. **Option 3**:
-   - Use Jenkins "Delete Workspace" action
-   - Trigger new build
-
-## Prevention
-- Ensure `cleanWs()` plugin is properly configured
-- Monitor workspace cleanup logs for failures
-- Consider implementing timeout for git operations
-- Implement git repository verification before checkout
-
-## Related Issues
-- Git repository corruption often caused by:
-  - Incomplete cleanup from previous builds
-  - Force-killed git processes
-  - File system issues
-  - Network interruptions during fetch
-
-## Verification
-After fix, verify with:
-```
-git rev-parse --resolve-git-dir .git
-git status
-git log --oneline -5
-```
+## What Should Be Marked Wrong
+- Blaming `connect_to_redmine` for raising — it is correctly surfacing the underlying error.
+- Suggesting `verify=False` as the fix.
+- Treating earlier successful stages as unrelated and missing that they prove the client trust store is fine.

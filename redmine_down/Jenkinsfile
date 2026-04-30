@@ -1,54 +1,49 @@
 pipeline {
-    agent {
-        node {
-            label 'AI_BUILDER'
-            customWorkspace 'D:\\_jenkins_4\\workspace\\redmine_ingestion'
-        }
-    }
+    agent { label 'AI_BUILDER' }
 
-    parameters {
-        booleanParam(name: 'DeployExecute', defaultValue: true, description: 'Execute Deploy')
-        booleanParam(name: 'redmine', defaultValue: true, description: 'Redmine flag')
-    }
-
-    triggers {
-        cron('H 2 * * *')
+    options {
+        timeout(time: 4, unit: 'HOURS')
     }
 
     stages {
         stage('Deploy') {
             steps {
-                withCredentials([string(credentialsId: 'kap_api_key', variable: 'KAP_API_KEY')]) {
-                    withEnv(['JENKINS_NODE_COOKIE=dontKillMe']) {
-                        timeout(time: 4, unit: 'HOURS') {
-                            cleanWs()
-                            dir('data_flow_hub') {
-                                checkout(
-                                    scm: [
-                                        $class: 'GitSCM',
-                                        branches: [[name: 'main']],
-                                        userRemoteConfigs: [[
-                                            url: 'https://git.company-engineering.net/data/data-flow-hub',
-                                            credentialsId: 'token_gitlab_company_qqtechdataactivities'
-                                        ]]
-                                    ]
-                                )
-                                bat '''
-                                    python -m pip install pipenv
-                                    python -m pipenv --rm
-                                    python -m pipenv install --ignore-pipfile
-                                '''
-                            }
-                        }
-                    }
+                dir('data_flow_hub') {
+                    git branch: 'main',
+                        credentialsId: 'token_gitlab_company_qqtechdataactivities',
+                        url: 'https://git.company-engineering.net/data/data-flow-hub'
                 }
             }
         }
-    }
 
-    post {
-        always {
-            cleanWs()
+        stage('kap_versions') {
+            steps {
+                bat '"C:\\Python310\\python.exe" -m pipenv run python -m ingestion.jobs.redmine_ingestion.pipeline.ingest_kap_versions'
+            }
+        }
+
+        stage('kap_time_entries') {
+            steps {
+                bat '"C:\\Python310\\python.exe" -m pipenv run python -m ingestion.jobs.redmine_ingestion.pipeline.ingest_kap_time_entries'
+            }
+        }
+
+        stage('kap_issues') {
+            steps {
+                bat '"C:\\Python310\\python.exe" -m pipenv run python -m ingestion.jobs.redmine_ingestion.pipeline.ingest_kap_issues'
+            }
+        }
+
+        stage('redmine') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'redmine_training',
+                    usernameVariable: 'redmine_usr',
+                    passwordVariable: 'redmine_pwd'
+                )]) {
+                    bat '"C:\\Python310\\python.exe" -m pipenv run python -m ingestion.jobs.redmine_ingestion.pipeline.ingest_redmine_training_issues trainingprocess.tech %redmine_pwd% data_team %db_pwd%'
+                }
+            }
         }
     }
 }
