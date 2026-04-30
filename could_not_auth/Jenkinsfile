@@ -1,0 +1,60 @@
+pipeline {
+    agent {
+        node {
+            label 'AI_BUILDER'
+            customWorkspace 'D:\\_jenkins_4\\workspace\\github_tcs_ingestion'
+        }
+    }
+
+    parameters {
+        string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch to checkout')
+    }
+
+    triggers {
+        githubPush()
+    }
+
+    stages {
+        stage('Deploy') {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'GITHUB_SWBK_CREDENTIALS', variable: 'GITHUB_SWBK_TOKEN'),
+                    string(credentialsId: 'GITLAB_CARIAD_CREDENTIALS', variable: 'GITLAB_CARIAD_TOKEN'),
+                    string(credentialsId: 'CC_GITHUB_IPNEXT_CREDENTIALS', variable: 'GITHUB_IPNEXT_TOKEN'),
+                    string(credentialsId: 'MSSQL', variable: 'MSSQL_CREDS'),
+                    string(credentialsId: 'GITLAB_CREDENTIALS', variable: 'GITLAB_TOKEN')
+                ]) {
+                    node('AI_BUILDER') {
+                        dir('data_flow_hub') {
+                            checkout(
+                                scm: [
+                                    $class: 'GitSCM',
+                                    branches: [[name: '${BRANCH}']],
+                                    userRemoteConfigs: [[
+                                        url: 'https://git.company-engineering.net/data/data-flow-hub',
+                                        credentialsId: 'token_gitlab_company_qqtechdataactivities'
+                                    ]]
+                                ]
+                            )
+                            
+                            script {
+                                bat '''
+                                    echo "Setting up Python environment..."
+                                    python -m pip install pipenv
+                                    python -m pipenv --rm
+                                    python -m pipenv install --ignore-pipfile
+                                '''
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
