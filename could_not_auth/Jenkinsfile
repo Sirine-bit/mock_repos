@@ -1,34 +1,60 @@
 pipeline {
-    agent { label 'AI_BUILDER' }
+    agent {
+        node {
+            label 'AI_BUILDER'
+            customWorkspace 'D:\\_jenkins_4\\workspace\\github_tcs_ingestion'
+        }
+    }
 
-    environment {
-        DATA_FLOW_HUB_REPO = 'https://git.company-engineering.net/data/data-flow-hub'
+    parameters {
+        string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch to checkout')
+    }
+
+    triggers {
+        githubPush()
     }
 
     stages {
         stage('Deploy') {
             steps {
                 withCredentials([
-                    usernamePassword(credentialsId: 'token_gitlab_company_qqtechdataactivities',
-                                     usernameVariable: 'GITLAB_CREDENTIALS',
-                                     passwordVariable: 'GITLAB_CREDENTIALS_PSW'),
-                    usernamePassword(credentialsId: 'cc_github_ipnext',
-                                     usernameVariable: 'CC_GITHUB_IPNEXT_CREDENTIALS',
-                                     passwordVariable: 'CC_GITHUB_IPNEXT_CREDENTIALS_PSW')
+                    string(credentialsId: 'GITHUB_SWBK_CREDENTIALS', variable: 'GITHUB_SWBK_TOKEN'),
+                    string(credentialsId: 'GITLAB_CARIAD_CREDENTIALS', variable: 'GITLAB_CARIAD_TOKEN'),
+                    string(credentialsId: 'CC_GITHUB_IPNEXT_CREDENTIALS', variable: 'GITHUB_IPNEXT_TOKEN'),
+                    string(credentialsId: 'MSSQL', variable: 'MSSQL_CREDS'),
+                    string(credentialsId: 'GITLAB_CREDENTIALS', variable: 'GITLAB_TOKEN')
                 ]) {
-                    dir('data_flow_hub') {
-                        git branch: 'main',
-                            credentialsId: 'token_gitlab_company_qqtechdataactivities',
-                            url: env.DATA_FLOW_HUB_REPO
+                    node('AI_BUILDER') {
+                        dir('data_flow_hub') {
+                            checkout(
+                                scm: [
+                                    $class: 'GitSCM',
+                                    branches: [[name: '${BRANCH}']],
+                                    userRemoteConfigs: [[
+                                        url: 'https://git.company-engineering.net/data/data-flow-hub',
+                                        credentialsId: 'token_gitlab_company_qqtechdataactivities'
+                                    ]]
+                                ]
+                            )
+                            
+                            script {
+                                bat '''
+                                    echo "Setting up Python environment..."
+                                    python -m pip install pipenv
+                                    python -m pipenv --rm
+                                    python -m pipenv install --ignore-pipfile
+                                '''
+                            }
+                        }
                     }
                 }
             }
         }
+    }
 
-        stage('get_tcs_jc_master') {
-            steps {
-                bat '"C:\\Python310\\python.exe" -m pipenv run python -m ingestion.jobs.github_tcs_ingestion.pipelines.get_ipnext_jc_tcs'
-            }
+    post {
+        always {
+            cleanWs()
         }
     }
 }

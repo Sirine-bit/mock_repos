@@ -1,39 +1,49 @@
 # Gold RCA
 
 ## Scenario
-The Redmine ingestion pipeline finishes the KAP versions, time entries, and issues stages, then crashes during the `redmine` stage when it tries to authenticate against the training Redmine server.
+The `redmine_ingestion` Jenkins job extracts issues from the company Redmine server. The Python `redminelib` client calls `GET /users/current.json` to validate credentials, and the HTTPS handshake fails because the Redmine server's TLS certificate is expired. The pipeline aborts before any data ingestion happens.
 
 ## Terminal Failure
-- Stage: `redmine`
+- Stage: `Deploy` (final python `ingest_redmine_training_issues`)
 - Correct class: `INFRASTRUCTURE_ISSUE`
-- Terminal error: `ssl.SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired`
+- Correct RCA Subtype: `EXTERNAL_SERVICE_FAILURE` (acceptable: `NETWORK_TIMEOUT_OR_CONNECTIVITY` — both belong to the P0 short-circuit allow-list)
+- Correct Investigator Defect Type: `infrastructure_failure`
+- Terminal error: `ssl.SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired (_ssl.c:1007)` against `https://redmine.intranet.company.tn:443/users/current.json`, surfaced through `requests.exceptions.SSLError` and finally re-raised as `Exception("unable to connect to redmine server", ...)`.
 
 ## Root Cause In This Fixture
-The application code in [ingestion/jobs/redmine_ingestion/infra/redmine.py](./ingestion/jobs/redmine_ingestion/infra/redmine.py) is correct. It opens a TLS session to `https://redmine.intranet.company.tn` and probes `/users/current.json`. The remote server is presenting an expired X.509 certificate, so `urllib3` aborts the TLS handshake before any application logic runs. Earlier stages succeed because they connect to a different KAP Redmine endpoint with a valid certificate.
+The TLS certificate served by the Redmine server (`redmine.intranet.company.tn`) is expired. Python's default certificate chain validation rejects the handshake, so every `redminelib` HTTP call fails before any business logic runs. **No code, schema, or Jenkins-side change in this repository can fix this.** This is an external-service / PKI incident: the Redmine operator must renew or rotate the server certificate (or the corporate CA bundle must be updated).
 
 ## Defective Location
-- File: server-side certificate on `redmine.intranet.company.tn`
-- Confirmation file: `ingestion/jobs/redmine_ingestion/infra/redmine.py`
-- Defect type: `infrastructure`
+- Primary defect: **infrastructure — expired TLS cert on the Redmine endpoint**, not any file in this repository.
+- Defect type: `infrastructure_failure`
+- Suggested operator scope: Redmine server admin / corporate PKI / Jenkins agent trust store (only if a private CA was rotated).
 
 ## Evidence The Agent Should Use
-- [ingestion/jobs/redmine_ingestion/infra/redmine.py](./ingestion/jobs/redmine_ingestion/infra/redmine.py) shows the connector simply forwards the TLS error.
-- [ingestion/jobs/redmine_ingestion/application/data_ingestion.py](./ingestion/jobs/redmine_ingestion/application/data_ingestion.py) shows `connect_to_redmine()` is called before any business logic.
-- [ingestion/jobs/redmine_ingestion/pipeline/ingest_redmine_training_issues.py](./ingestion/jobs/redmine_ingestion/pipeline/ingest_redmine_training_issues.py) shows the failing stage targets the training Redmine host, not the KAP host used by the earlier successful stages.
-- [Jenkinsfile](./Jenkinsfile) shows three KAP stages run before this one and complete normally.
+This scenario is intentionally infra-class. The repository for this fixture contains only `Jenkinsfile` + `README.md` (no Python under `data_flow_hub/`), so deep code inspection is impossible AND unnecessary.
+
+Expected path:
+1. Parser surfaces the SSL traceback as the terminal failure (NOT the earlier `git rev-parse --resolve-git-dir` warning, which is a non-fatal Jenkins-side check that prints `fatal: not a gitdir` but does not stop the pipeline).
+2. RCA classifies `Primary Class = INFRASTRUCTURE_ISSUE`, `Subtype = EXTERNAL_SERVICE_FAILURE`.
+3. Investigator short-circuits (`Status = SKIPPED_INFRA`, 0 tool calls, 0 rounds).
+4. Suggestor emits `INFRA_OR_OPERATIONAL_DIRECTIVE`.
 
 ## How The Agent Should Reason
-1. Read the traceback bottom-up and identify the original `SSLCertVerificationError`.
-2. Notice the cert has *expired*, not been misconfigured locally.
-3. Confirm earlier stages connect successfully to a different host, ruling out a client-side trust store issue.
-4. Conclude the failure is server-side infrastructure: the training Redmine certificate must be renewed.
+1. Read the LAST traceback in the console output. It is `requests.exceptions.SSLError` → `Exception("unable to connect to redmine server", ...)` raised by `connect_to_redmine()`. That is the terminal failure.
+2. The earlier `git rev-parse --resolve-git-dir ... fatal: not a gitdir` is **noise from Jenkins's git-client pre-check**; the pipeline recovers and proceeds. Do NOT treat it as the root cause.
+3. SSL cert expiry on a third-party HTTPS endpoint is by construction an infrastructure / PKI failure. Skip code inspection.
+4. Suggestor recommends operational actions: renew the Redmine TLS certificate, confirm the corporate CA bundle on the Jenkins agent, re-run the pipeline once the cert chain validates.
 
 ## What A Strong Answer Must Say
-- The failure is a TLS handshake error caused by an expired server certificate.
-- The relevant host is `redmine.intranet.company.tn`.
-- The application code did not change behavior; the fix is renewing the server certificate, not editing Python.
+- Terminal failure is the SSL cert expiry on `redmine.intranet.company.tn`, not the noisy `fatal: not a gitdir` line earlier in the log.
+- The defect class is `INFRASTRUCTURE_ISSUE` and the subtype is `EXTERNAL_SERVICE_FAILURE`.
+- The Investigator must `SKIPPED_INFRA` with 0 tool calls and 0 rounds.
+- The Suggestor must be `INFRA_OR_OPERATIONAL_DIRECTIVE` with `Change Type = operational_action` and `Confidence ≤ medium` (no code evidence was gathered).
+- Mention concretely: rotate / renew the Redmine server certificate; verify CA chain trusted by the Jenkins agent; re-run after the cert is valid.
 
 ## What Should Be Marked Wrong
-- Blaming `connect_to_redmine` for raising — it is correctly surfacing the underlying error.
-- Suggesting `verify=False` as the fix.
-- Treating earlier successful stages as unrelated and missing that they prove the client trust store is fine.
+- Treating the earlier `fatal: not a gitdir` line as the root cause — that's a transient git pre-check, not the terminal failure.
+- Recommending a code patch in this repo (no Python file exists here; nothing to patch).
+- Defect Type = `null_reference`, `missing_key`, `truncation`, `wrong_type`, etc. The only correct value is `infrastructure_failure`.
+- Suggesting credential rotation as the fix — credentials reach the server fine; the TLS handshake fails BEFORE auth.
+- Returning `INCONCLUSIVE` or `CONFIRMED` instead of the canonical `SKIPPED_INFRA` stub for this defect class.
+- LIMITED_ADVISORY: a clear operational directive exists, issue it.

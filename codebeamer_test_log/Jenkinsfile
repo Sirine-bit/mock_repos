@@ -1,12 +1,27 @@
 pipeline {
-    agent { label 'Rivian2' }
+    agent {
+        node {
+            label 'AI_BUILDER'
+            customWorkspace 'D:\\_jenkins_4\\workspace\\codebeamer_ingestion'
+        }
+    }
 
     stages {
         stage('Get_Testcases_Ipnext') {
             steps {
                 echo 'Running Get_Testcases_Ipnext stage'
-                sh 'python etl/run.py'
+                dir('etl') {
+                    bat '''
+                        python run.py
+                    '''
+                }
             }
+        }
+    }
+
+    post {
+        failure {
+            echo 'Build failed during data access'
         }
     }
 }
